@@ -7,7 +7,22 @@ import json
 
 from pydantic import BaseModel
 
+class StartInterviewRequest(BaseModel):
+    domain: str
+    candidate_name: str
 
+
+class ChatRequest(BaseModel):
+    domain: str
+    history: list
+    user_message: str
+
+
+class EvaluationRequest(BaseModel):
+    transcript: list
+    candidate_name: str
+    domain: str
+    
 class ChatRequest(BaseModel):
     history: list
     user_message: str
@@ -15,6 +30,8 @@ class ChatRequest(BaseModel):
 
 class EvaluationRequest(BaseModel):
     transcript: list
+    candidate_name: str
+    domain: str
 
 load_dotenv()
 
@@ -39,14 +56,12 @@ def chat(request: ChatRequest):
 You are a professional interviewer for a {request.domain} role.
 
 Rules:
-1. Ask ONE question at a time.
-2. Never reveal future questions.
-3. Do not give explanations unless asked.
-4. Keep responses short.
-5. Behave exactly like a real interviewer.
-6. Ask follow-up questions when appropriate.
+- Ask ONE question at a time.
+- Ask follow-up questions when needed.
+- Do not reveal future questions.
+- Keep responses concise.
 
-Conversation history:
+Previous conversation:
 {request.history}
 
 Candidate's latest answer:
@@ -82,32 +97,63 @@ def test_gemini():
         "response": response.text
     }
 
+@app.post("/start-interview")
+def start_interview(request: StartInterviewRequest):
+
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"""
+        You are an interviewer for a {request.domain} role.
+
+        Welcome the candidate named {request.candidate_name}.
+
+        Then ask the first interview question.
+
+        Return only the greeting and first question.
+        """
+    )
+
+    return {
+        "message": response.text
+    }
+
 @app.post("/evaluate")
 def evaluate(request: EvaluationRequest):
 
     prompt = f"""
-You are an interview evaluator.
+Evaluate this interview.
 
-Analyze the transcript below.
+Candidate:
+{request.candidate_name}
 
-Return ONLY valid JSON.
-
-Do NOT use markdown.
-Do NOT surround with ```json.
-Do NOT include explanations.
-
-Format exactly:
-
-{{
-    "technical_score": 0,
-    "communication_score": 0,
-    "strengths": [],
-    "weaknesses": [],
-    "suggestions": []
-}}
+Role:
+{request.domain}
 
 Transcript:
 {request.transcript}
+
+Return ONLY JSON.
+
+Format:
+
+{{
+  "technicalScore": 0,
+  "communicationScore": 0,
+
+  "feedback": [
+    {{
+      "type": "positive",
+      "text": ""
+    }}
+  ],
+
+  "modelAnswers": [
+    {{
+      "question": "",
+      "answer": ""
+    }}
+  ]
+}}
 """
 
     response = client.models.generate_content(
@@ -117,5 +163,7 @@ Transcript:
             "response_mime_type": "application/json"
         }
     )
+
+    import json
 
     return json.loads(response.text)
