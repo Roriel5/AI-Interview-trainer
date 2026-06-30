@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'https://ai-interview-trainer-6.onrender.com';
 
 export const startInterview = async (candidateName, domain) => {
   const response = await fetch(`${API_BASE_URL}/start-interview`, {
