@@ -1,12 +1,35 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import PastInterviewsList from './PastInterviewsList';
 import { BrainCircuit, LayoutDashboard, Award, MessageSquare, PlusCircle, LogOut, ArrowUpRight } from 'lucide-react';
+import { getHistory } from '../../api';
 
 export default function DashboardScreen({ user, onStartNewInterview, onLogout }) {
-  const mockHistory = [
-    { id: 1, role: 'Frontend Engineer', date: 'June 24, 2026', technical: 85, communication: 90 },
-    { id: 2, role: 'Python Developer', date: 'June 20, 2026', technical: 72, communication: 78 },
-  ];
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user?.name) {
+      getHistory(user.name)
+        .then(data => {
+          setHistory(data);
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error(err);
+          setLoading(false);
+        });
+    } else {
+      setLoading(false);
+    }
+  }, [user]);
+
+  const avgTech = history.length > 0 
+    ? (history.reduce((sum, s) => sum + (s.evaluation?.technicalScore || 0), 0) / history.length * 10).toFixed(1)
+    : '0.0';
+    
+  const avgComm = history.length > 0 
+    ? (history.reduce((sum, s) => sum + (s.evaluation?.communicationScore || 0), 0) / history.length * 10).toFixed(1)
+    : '0.0';
 
   return (
     <div className="h-screen flex bg-slate-950 overflow-hidden text-slate-100">
@@ -60,21 +83,21 @@ export default function DashboardScreen({ user, onStartNewInterview, onLogout })
           <div className="glass border border-slate-800/60 p-5 rounded-xl flex items-center gap-4 shadow-md">
             <div className="p-2.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg"><Award size={20} /></div>
             <div>
-              <span className="block text-xl font-bold tracking-tight text-slate-100">78.5%</span>
+              <span className="block text-xl font-bold tracking-tight text-slate-100">{avgTech}%</span>
               <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Avg. Tech Skill</span>
             </div>
           </div>
           <div className="glass border border-slate-800/60 p-5 rounded-xl flex items-center gap-4 shadow-md">
             <div className="p-2.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-lg"><MessageSquare size={20} /></div>
             <div>
-              <span className="block text-xl font-bold tracking-tight text-slate-100">84.0%</span>
+              <span className="block text-xl font-bold tracking-tight text-slate-100">{avgComm}%</span>
               <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Avg. Communication</span>
             </div>
           </div>
           <div className="glass border border-slate-800/60 p-5 rounded-xl flex items-center gap-4 shadow-md sm:col-span-2 lg:col-span-1">
             <div className="p-2.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-lg"><LayoutDashboard size={20} /></div>
             <div>
-              <span className="block text-xl font-bold tracking-tight text-slate-100">{mockHistory.length}</span>
+              <span className="block text-xl font-bold tracking-tight text-slate-100">{history.length}</span>
               <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Total Evaluation Runs</span>
             </div>
           </div>
@@ -85,7 +108,7 @@ export default function DashboardScreen({ user, onStartNewInterview, onLogout })
     <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3 px-1">
         Historical Records
     </h2>
-    <PastInterviewsList history={mockHistory} />
+    <PastInterviewsList history={history} />
     </section>
       </main>
     </div>

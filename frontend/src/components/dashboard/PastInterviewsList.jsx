@@ -21,18 +21,18 @@ export default function PastInterviewsList({ history }) {
           >
             <div className="space-y-1">
               <h3 className="font-semibold text-sm text-slate-200 group-hover:text-white transition">
-                {session.role}
+                {session.domain}
               </h3>
-              <p className="text-[11px] text-slate-500">{session.date}</p>
+              <p className="text-[11px] text-slate-500">{new Date(session.timestamp).toLocaleDateString()}</p>
             </div>
             
             <div className="flex items-center gap-6">
               <div className="text-right text-xs space-y-0.5">
                 <p className="text-slate-400">
-                  Technical: <span className="text-indigo-400 font-bold">{session.technical}%</span>
+                  Technical: <span className="text-indigo-400 font-bold">{session.evaluation?.technicalScore}/10</span>
                 </p>
                 <p className="text-slate-400">
-                  Communication: <span className="text-cyan-400 font-bold">{session.communication}%</span>
+                  Communication: <span className="text-cyan-400 font-bold">{session.evaluation?.communicationScore}/10</span>
                 </p>
               </div>
               

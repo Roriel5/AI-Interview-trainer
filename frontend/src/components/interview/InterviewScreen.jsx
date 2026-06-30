@@ -5,7 +5,7 @@ import ChatWindow from './ChatWindow';
 import StatusIndicator from './StatusIndicator';
 import SpeakButton from './SpeakButton';
 import useSpeechRecognition from '../../hooks/useSpeechRecognition';
-import { questionBanks, openingMessages, mockScorecard } from '../../data/mockInterview';
+import { startInterview, chat, evaluateInterview } from '../../api';
 
 const getTimestamp = () =>
   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -18,13 +18,11 @@ const makeMessage = (role, text) => ({
 });
 
 const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
-  const questions = questionBanks[jobDomain] || [];
-
   const [messages, setMessages] = useState([]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [status, setStatus] = useState('ready'); // 'ready' | 'thinking' | 'listening' | 'idle'
   const [isButtonDisabled, setIsButtonDisabled] = useState(true);
   const [hasStarted, setHasStarted] = useState(false);
+  const [interviewComplete, setInterviewComplete] = useState(false);
 
   const {
     transcript,
@@ -53,23 +51,21 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
     if (hasStarted) return;
     setHasStarted(true);
 
-    const greeting = openingMessages[jobDomain];
-    const firstQuestion = questions[0]?.text;
-
     setIsButtonDisabled(true);
     setStatus('thinking');
 
-    setTimeout(() => {
-      setMessages([makeMessage('ai', greeting)]);
-      setTimeout(() => {
-        if (firstQuestion) {
-          postAIMessage(
-            `Question 1 of ${questions.length}: ${firstQuestion}`,
-            1200
-          );
-        }
-      }, 800);
-    }, 800);
+    startInterview(candidateName, jobDomain)
+      .then((data) => {
+        setMessages([makeMessage('ai', data.message)]);
+        setStatus('ready');
+        setIsButtonDisabled(false);
+      })
+      .catch((err) => {
+        console.error(err);
+        setMessages([makeMessage('ai', 'Error starting interview. Please try again.')]);
+        setStatus('ready');
+        setIsButtonDisabled(false);
+      });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Handle speech recognition state changes ──────────────────────────────
@@ -81,36 +77,38 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
 
   // ─── When transcript finalizes (speech ended), post user answer ───────────
   useEffect(() => {
-    if (!isListening && transcript) {
+    if (!isListening && transcript && !interviewComplete) {
       const userText = transcript.trim();
       if (!userText) return;
 
       // Post user message
-      setMessages((prev) => [...prev, makeMessage('user', userText)]);
+      const userMsg = makeMessage('user', userText);
+      const newMessages = [...messages, userMsg];
+      setMessages(newMessages);
       resetTranscript();
 
-      const nextIndex = currentQuestionIndex + 1;
+      // Send to backend
+      setIsButtonDisabled(true);
+      setStatus('thinking');
 
-      if (nextIndex < questions.length) {
-        setCurrentQuestionIndex(nextIndex);
-        postAIMessage(
-          `Question ${nextIndex + 1} of ${questions.length}: ${questions[nextIndex].text}`,
-          1800
-        );
-      } else {
-        // All questions answered
-        setStatus('idle');
-        setIsButtonDisabled(true);
-        setTimeout(() => {
-          setMessages((prev) => [
-            ...prev,
-            makeMessage(
-              'ai',
-              `That wraps up our interview, ${candidateName}! Thank you for your thoughtful answers. Click "End Interview" to see your full evaluation scorecard.`
-            ),
-          ]);
-        }, 1500);
-      }
+      // Convert format for backend
+      const historyForBackend = newMessages.map((m) => ({
+        role: m.role === 'ai' ? 'interviewer' : 'user',
+        text: m.text,
+      }));
+
+      chat(jobDomain, historyForBackend, userText)
+        .then((data) => {
+          setMessages([...newMessages, makeMessage('ai', data.bot_response)]);
+          setStatus('ready');
+          setIsButtonDisabled(false);
+        })
+        .catch((err) => {
+          console.error(err);
+          setMessages([...newMessages, makeMessage('ai', 'Sorry, I missed that. Could you repeat?')]);
+          setStatus('ready');
+          setIsButtonDisabled(false);
+        });
     }
   }, [isListening, transcript]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,10 +124,29 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
   // ─── End interview ────────────────────────────────────────────────────────
   const handleEnd = () => {
     if (isListening) stopListening();
-    onEnd(mockScorecard);
-  };
+    
+    // Evaluate logic
+    setIsButtonDisabled(true);
+    setStatus('thinking');
+    setInterviewComplete(true);
+    
+    const historyForBackend = messages.map((m) => ({
+      role: m.role === 'ai' ? 'interviewer' : 'user',
+      text: m.text,
+    }));
 
-  const interviewComplete = currentQuestionIndex >= questions.length && !isListening;
+    evaluateInterview(candidateName, jobDomain, historyForBackend)
+      .then((scorecard) => {
+        onEnd(scorecard);
+      })
+      .catch((err) => {
+        console.error("Evaluation failed", err);
+        alert("Failed to generate scorecard. Please check the backend.");
+        setIsButtonDisabled(false);
+        setStatus('idle');
+        setInterviewComplete(false);
+      });
+  };
 
   return (
     <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
@@ -165,9 +182,7 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
       <div className="flex-shrink-0 h-0.5 bg-slate-800">
         <div
           className="h-full bg-gradient-to-r from-indigo-600 to-cyan-500 transition-all duration-700"
-          style={{
-            width: `${(Math.min(currentQuestionIndex, questions.length) / questions.length) * 100}%`,
-          }}
+          style={{ width: interviewComplete || status === 'thinking' ? '100%' : '50%' }}
         />
       </div>
 
@@ -185,11 +200,8 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
 
       {/* ── Bottom controls ─────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 glass border-t border-slate-800/60 px-4 py-6 flex flex-col items-center gap-2">
-        {/* Question counter */}
         <p className="text-xs text-slate-600 mb-2">
-          {interviewComplete
-            ? 'Interview complete'
-            : `Question ${Math.min(currentQuestionIndex + 1, questions.length)} of ${questions.length}`}
+          {interviewComplete ? 'Evaluating...' : 'Answer the questions actively'}
         </p>
 
         <SpeakButton
@@ -202,10 +214,10 @@ const InterviewScreen = ({ candidateName, jobDomain, onEnd }) => {
 
         {interviewComplete && (
           <button
-            onClick={handleEnd}
-            className="mt-3 px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-sm font-semibold shadow-lg glow-indigo transition-all hover:scale-[1.02] active:scale-[0.98]"
+            disabled
+            className="mt-3 px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 opacity-50 text-white text-sm font-semibold shadow-lg"
           >
-            Generate Scorecard →
+            Generating Scorecard...
           </button>
         )}
       </div>
